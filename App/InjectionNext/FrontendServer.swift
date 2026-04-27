@@ -144,18 +144,29 @@ class FrontendServer: SimpleSocket {
             swiftFiles: parser.swiftFiles, workingDir: projectRoot, env: env)
 
         DispatchQueue.main.async {
+            // Skip the "Watch Directory?" prompt for project roots the user
+            // has already declined — feedcommands invocations stream in for
+            // every build and re-popping the open panel for the same path
+            // every time is hostile (esp. when iterating on a separate
+            // unrelated project that uses InjectionNext's toolchain wrapper).
+            let dismissedKey = "dismissed_watch_prompts"
+            let dismissed = Set(UserDefaults.standard
+                .stringArray(forKey: dismissedKey) ?? [])
             if !projectRoot.hasSuffix(".xcodeproj") && projectRoot != "/" &&
-//                MonitorXcode.runningXcode == nil &&
-                AppDelegate.alreadyWatching(projectRoot) == nil {
+                AppDelegate.alreadyWatching(projectRoot) == nil &&
+                !dismissed.contains(projectRoot) {
                 let open = NSOpenPanel()
-//                open.titleVisibility = .visible
-//                open.title = "InjectionNext: add directory"
                 open.prompt = "InjectionNext - Watch Directory?"
                 open.directoryURL = URL(fileURLWithPath: projectRoot)
                 open.canChooseDirectories = true
                 open.canChooseFiles = false
                 if open.runModal() == .OK, let url = open.url {
                     AppDelegate.ui.watch(path: url.path)
+                } else {
+                    var newDismissed = dismissed
+                    newDismissed.insert(projectRoot)
+                    UserDefaults.standard.set(Array(newDismissed),
+                                              forKey: dismissedKey)
                 }
             }
         }

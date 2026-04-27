@@ -16,6 +16,7 @@ import Cocoa
 extension AppDelegate {
     static var watchers = [String: InjectionHybrid]()
     static var lastWatched: String?
+    static let watchedDirectoriesKey = "watching_directories"
 
     @IBAction func watchProject(_ sender: NSMenuItem) {
         let open = NSOpenPanel()
@@ -29,15 +30,35 @@ extension AppDelegate {
         } else {
             Self.watchers.removeAll()
             Self.lastWatched = nil
+            Self.persistWatchers()
         }
     }
 
     func watch(path: String) {
         guard Self.alreadyWatching(path) == nil else { return }
         GitIgnoreParser.monitor(directory: path)
+        Reloader.xcodeDev = Defaults.xcodePath+"/Contents/Developer"
         Self.watchers[path] = InjectionHybrid(watching: path)
         Self.lastWatched = path
         watchDirectoryItem.state = Self.watchers.isEmpty ? .off : .on
+        Self.persistWatchers()
+    }
+
+    static func persistWatchers() {
+        UserDefaults.standard.set(Array(watchers.keys),
+                                  forKey: watchedDirectoriesKey)
+    }
+
+    /// Restore previously-watched directories at launch so xcodeless flows
+    /// (xcodebuild CLI / file-watcher only) resume hot-reload without needing
+    /// the user to re-pick the project after every relaunch of the menu app.
+    func restoreWatchers() {
+        guard let dirs = UserDefaults.standard
+                .array(forKey: Self.watchedDirectoriesKey) as? [String]
+        else { return }
+        for dir in dirs where FileManager.default.fileExists(atPath: dir) {
+            watch(path: dir)
+        }
     }
     static func alreadyWatching(_ projectRoot: String) -> String? {
         return Self.watchers[projectRoot] != nil ? projectRoot :

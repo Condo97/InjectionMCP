@@ -104,15 +104,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if Defaults.xcodeDefault == nil {
                 Defaults.xcodeDefault = xcodePath
             }
-            selectXcodeItem.toolTip = Defaults.xcodePath
-            if updatePatchUnpatch() == .unpatched &&
-                getenv(INJECTION_HIDE_XCODE_ALERT) == nil {
-                InjectionServer.alert("""
-                    Please quit Xcode and
-                    use this app to launch it
-                    (unless you are using a file watcher).
-                    """)
-            }
+        }
+        // Always evaluate patch state at startup so xcodeless flows
+        // (xcodebuild CLI / file-watcher only) bring up the FrontendServer
+        // without requiring Xcode.app to be running.
+        selectXcodeItem.toolTip = Defaults.xcodePath
+        if updatePatchUnpatch() == .unpatched &&
+            getenv(INJECTION_HIDE_XCODE_ALERT) == nil &&
+            NSRunningApplication
+                .runningApplications(withBundleIdentifier: "com.apple.dt.Xcode")
+                .first != nil {
+            InjectionServer.alert("""
+                Please quit Xcode and
+                use this app to launch it
+                (unless you are using a file watcher).
+                """)
         }
  
         setupCodeSigningComboBox()
@@ -134,6 +140,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if Defaults.mcpServer {
             LogBuffer.shared = LogBuffer()
             ControlServer.start()
+        }
+
+        // Restore directories the user previously chose to watch so the file
+        // watcher comes up automatically in xcodeless flows (xcodebuild CLI
+        // / no Xcode running) instead of requiring a "Watch Another..."
+        // click after every relaunch of the menu app.
+        DispatchQueue.main.async {
+            self.restoreWatchers()
         }
     }
 

@@ -265,8 +265,19 @@ class NextCompiler {
 
         unlink(object)
         unlink(filesfile)
-        try stored.swiftFiles.write(toFile: filesfile,
-                                    atomically: false, encoding: .utf8)
+        // Filter the cached filelist to entries that still exist on disk.
+        // The cache is populated at build time; by the time a hot-reload
+        // fires the user may have deleted, renamed, or branch-switched
+        // away from some of those files. Without this, swift-frontend
+        // aborts with "error opening input file" for the missing entries
+        // before it even attempts the primary-file compile.
+        let fm = FileManager.default
+        let existingSwiftFiles = stored.swiftFiles
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .filter { fm.fileExists(atPath: String($0)) }
+            .joined(separator: "\n") + "\n"
+        try existingSwiftFiles.write(toFile: filesfile,
+                                     atomically: false, encoding: .utf8)
 
         log("Recompiling: "+source)
         let toolchain = Defaults.xcodePath +
@@ -296,9 +307,42 @@ class NextCompiler {
         ]
         var arguments = [String]()
         var skipNext = false
-        for arg in stored.arguments where !wmoFlags.contains(arg) {
+        let storedArgs = stored.arguments
+        var i = 0
+        while i < storedArgs.count {
+            let arg = storedArgs[i]
+            i += 1
+
+            if wmoFlags.contains(arg) { continue }
             if skipNext { skipNext = false; continue }
             if arg == "-o" { skipNext = true; continue }
+
+            // Drop -Xcc -fmodule-map-file=<missing> pairs. The cache may
+            // reference modulemaps that have been cleaned by Xcode (pods
+            // changed, derived data trimmed) — without this filter
+            // swift-frontend aborts before reaching primary-file compile.
+            if arg == "-Xcc" && i < storedArgs.count {
+                let nextArg = storedArgs[i]
+                if nextArg.hasPrefix("-fmodule-map-file=") ||
+                   nextArg.hasPrefix("-fmodule-file=") {
+                    let path = String(nextArg.split(separator: "=",
+                        maxSplits: 1).last ?? "")
+                    if !path.isEmpty &&
+                       !fm.fileExists(atPath: path) {
+                        i += 1 // also skip nextArg
+                        continue
+                    }
+                }
+            }
+
+            // Standalone -fmodule-map-file=<missing>
+            if (arg.hasPrefix("-fmodule-map-file=") ||
+                arg.hasPrefix("-fmodule-file=")),
+               let path = arg.split(separator: "=", maxSplits: 1).last,
+               !fm.fileExists(atPath: String(path)) {
+                continue
+            }
+
             arguments.append(arg)
         }
         if let target = InjectionServer.currentClient?.arch, target != "arm64" {
