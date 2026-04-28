@@ -38,6 +38,11 @@ class InjectionServer: SimpleSocket {
     var platform = "iPhoneSimulator"
     var arch = "arm64"
     var tmpPath = "/unset"
+    /// Source tree this client's app was built from (sent via INJECTION_PROJECT_ROOT
+    /// or BUILD_WORKSPACE_DIRECTORY at launch). Used by NextCompiler.inject to
+    /// route dylibs only to clients whose tree contains the changed source file.
+    /// nil = legacy client that didn't report a root → fall through to broadcast.
+    var projectRoot: String?
 
     class func alert(_ msg: String) {
         NSLog("\(APP_PREFIX)\(APP_NAME) \(msg)")
@@ -195,7 +200,8 @@ class InjectionServer: SimpleSocket {
                 }
             case .projectRoot:
                 if let projectRoot = readString() {
-                    log("Auto-watching project: \(projectRoot)")
+                    self.projectRoot = projectRoot
+                    log("Client tree: \(projectRoot) (auto-watching)")
                     DispatchQueue.main.sync {
                         AppDelegate.ui.watch(path: projectRoot)
                         Self.lastAlert?.buttons.last?.performClick(self)

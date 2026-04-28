@@ -114,7 +114,19 @@ class NextCompiler {
 
         do {
             let result = try Fortify.protect { () -> Bool in
-                for client in InjectionServer.currentClients.reversed() {
+                // Tree isolation: when a client reports its source tree (via
+                // INJECTION_PROJECT_ROOT at launch), only route dylibs for
+                // sources inside that tree. Clients that did not report a
+                // root are treated as legacy and still receive everything.
+                let allClients = InjectionServer.currentClients.reversed()
+                let routedClients: [InjectionServer?] = allClients.filter { c in
+                    guard let c = c, let root = c.projectRoot else { return true }
+                    return source.hasPrefix(root + "/") || source == root
+                }
+                if routedClients.isEmpty && !allClients.isEmpty {
+                    log("⚠️ No connected client matches source tree for: \(source)")
+                }
+                for client in routedClients {
                 guard let (dylib, dylibName, platform, useFilesystem)
                         = try prepare(source: source, connected: client),
                    let data = codesign(dylib: dylib, platform: platform) else {
