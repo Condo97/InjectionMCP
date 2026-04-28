@@ -51,6 +51,17 @@ class NextCompiler {
     /// Last build error.
     static var lastError: String?, lastSource: String?
 
+    /// The most recent routing decision, exposed via ControlServer for AI/MCP
+    /// visibility. Lets a caller see which client(s) the last save's dylib was
+    /// delivered to and which source tree was the deepest-prefix match.
+    struct RoutingDecision {
+        let timestamp: TimeInterval
+        let source: String
+        let deepestMatch: Int  // characters in matched projectRoot, -1 = none
+        let deliveredTo: [String]  // each client's projectRoot or "<legacy>"
+    }
+    static var lastRouting: RoutingDecision?
+
     let name: String
     /// Base for temporary files
     let tmpbase = "/tmp/injectionNext"
@@ -118,14 +129,36 @@ class NextCompiler {
                 // INJECTION_PROJECT_ROOT at launch), only route dylibs for
                 // sources inside that tree. Clients that did not report a
                 // root are treated as legacy and still receive everything.
+                //
+                // Longest-prefix wins among reporting clients. This matters
+                // when worktrees are nested under the main checkout (e.g.
+                // `<repo>/.claude/worktrees/<name>/`): a worktree-edit's path
+                // also matches the main checkout's projectRoot prefix, so
+                // naive `hasPrefix` would inject into both sims (and the
+                // main-checkout sim has no binary for the worktree's code).
                 let allClients = InjectionServer.currentClients.reversed()
+                func matches(_ root: String) -> Bool {
+                    return source.hasPrefix(root + "/") || source == root
+                }
+                let deepestMatch = allClients.compactMap { c -> Int? in
+                    guard let c = c, let root = c.projectRoot,
+                          matches(root) else { return nil }
+                    return root.count
+                }.max() ?? -1
                 let routedClients: [InjectionServer?] = allClients.filter { c in
                     guard let c = c, let root = c.projectRoot else { return true }
-                    return source.hasPrefix(root + "/") || source == root
+                    return matches(root) && root.count == deepestMatch
                 }
                 if routedClients.isEmpty && !allClients.isEmpty {
                     log("⚠️ No connected client matches source tree for: \(source)")
                 }
+                // Record routing decision for AI/MCP visibility.
+                NextCompiler.lastRouting = NextCompiler.RoutingDecision(
+                    timestamp: Date().timeIntervalSince1970,
+                    source: source,
+                    deepestMatch: deepestMatch,
+                    deliveredTo: routedClients.compactMap { $0?.projectRoot ?? "<legacy>" }
+                )
                 for client in routedClients {
                 guard let (dylib, dylibName, platform, useFilesystem)
                         = try prepare(source: source, connected: client),

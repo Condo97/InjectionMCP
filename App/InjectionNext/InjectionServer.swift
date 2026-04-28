@@ -28,6 +28,13 @@ class InjectionServer: SimpleSocket {
     }
     /// Current connection to client app. There can be only one.
     static var currentClient: InjectionServer? { currentClients.last ?? nil }
+    /// Raw list of currently-connected clients, for read-only inspection
+    /// from ControlServer (status reporting). Unlike `currentClients` which
+    /// returns `[nil]` when empty as a legacy-fallback signal, this returns
+    /// the actual array — empty means no clients.
+    static var allConnectedClients: [InjectionServer] {
+        return clientQueue.sync { connected }
+    }
     static var lastAlert: NSAlert?
 
     /// Sorted last symbols exported by source.

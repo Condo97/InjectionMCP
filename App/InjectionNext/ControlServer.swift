@@ -255,6 +255,33 @@ class ControlServer {
             result["has_connected_client"] = InjectionServer.currentClient != nil
             result["auto_restart_xcode"] = Defaults.xcodeRestart
             result["last_error"] = NextCompiler.lastError
+            result["last_source"] = NextCompiler.lastSource ?? NSNull()
+
+            // Per-client visibility — lets AI/MCP callers see which sims are
+            // connected and which source tree each one reports. Without this,
+            // multi-sim/multi-worktree debugging requires scrolling logs.
+            let clients = InjectionServer.allConnectedClients.map { c -> [String: Any] in
+                [
+                    "projectRoot": c.projectRoot ?? NSNull(),
+                    "tmpPath": c.tmpPath,
+                    "platform": c.platform,
+                    "arch": c.arch,
+                    "injectionNumber": c.injectionNumber,
+                ]
+            }
+            result["connected_clients"] = clients
+            result["client_count"] = clients.count
+
+            // Last routing decision — answers "did the last save reach the
+            // sim I'm looking at?" without needing to parse log text.
+            if let r = NextCompiler.lastRouting {
+                result["last_routing"] = [
+                    "timestamp": r.timestamp,
+                    "source": r.source,
+                    "deepest_match_length": r.deepestMatch,
+                    "delivered_to": r.deliveredTo,
+                ] as [String: Any]
+            }
         }
         return .ok(result)
     }

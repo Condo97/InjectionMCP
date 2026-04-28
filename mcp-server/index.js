@@ -66,7 +66,7 @@ const server = new McpServer({
 
 server.tool(
   "get_status",
-  "Get the current status of InjectionNext: Xcode state, watched directories, compiler interception, connected clients, and last error",
+  "Get the current status of InjectionNext. Returns: xcode_running, xcode_path, compiler_intercepted (Patch Compiler state), devices_enabled, watching_directories (FSEvents-watched source trees), has_connected_client, client_count, connected_clients[] (each with projectRoot/tmpPath/platform/arch — projectRoot=null means a legacy launch missing INJECTION_PROJECT_ROOT, tree-isolation falls back to broadcast for that client), last_routing (timestamp/source/deepest_match_length/delivered_to[] — answers 'did the last save reach the right sim?'), last_source, last_error. Use this BEFORE diagnosing 'hot reload not working' — it shows whether the sim is connected and whether tree isolation is active.",
   {},
   async () => {
     const result = await sendCommand("status");
